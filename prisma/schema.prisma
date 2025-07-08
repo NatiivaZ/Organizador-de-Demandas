@@ -18,18 +18,30 @@ model User {
   id       Int     @id @default(autoincrement())
   username String  @unique
   password String
+  role     UserRole @default(USER)
+  accessLevel Int @default(1) // 1 = básico, 2 = intermediário, 3 = avançado, 4 = admin
   cards    Card[]
+  listPermissions ListPermission[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("users")
 }
 
+enum UserRole {
+  USER
+  ADMIN
+  MODERATOR
+}
+
 model List {
   id    Int     @id @default(autoincrement())
   name  String
   order Int     @default(0)
+  requiredAccessLevel Int @default(1) // Nível mínimo de acesso necessário para ver esta lista
+  isPublic Boolean @default(true) // Se false, só usuários com permissão específica podem ver
   cards Card[]
+  permissions ListPermission[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -64,6 +76,22 @@ model CardTag {
   tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([cardId, tagId])
+}
+
+model ListPermission {
+  id       Int    @id @default(autoincrement())
+  userId   Int
+  listId   Int
+  canView  Boolean @default(true)
+  canEdit  Boolean @default(false)
+  canDelete Boolean @default(false)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list     List   @relation(fields: [listId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, listId])
+  @@map("list_permissions")
 }
 
 model Card {

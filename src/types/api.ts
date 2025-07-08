@@ -4,6 +4,8 @@ export interface User {
   id: number
   username: string
   password: string
+  role: 'USER' | 'ADMIN' | 'MODERATOR'
+  accessLevel: number
   createdAt: Date
   updatedAt: Date
 }
@@ -11,6 +13,9 @@ export interface User {
 export interface List {
   id: number
   name: string
+  order: number
+  requiredAccessLevel: number
+  isPublic: boolean
   cards: Card[]
   createdAt: Date
   updatedAt: Date

@@ -55,9 +55,32 @@ export async function POST(request: NextRequest) {
 // PATCH - Atualizar ordem dos cards
 export async function PATCH(request: NextRequest) {
   try {
-    const { orders } = await request.json() // [{id, order, listId}]
+    const { orders, userId, userRole } = await request.json() // [{id, order, listId}]
     if (!Array.isArray(orders)) return NextResponse.json({ error: 'Formato inválido' }, { status: 400 })
+    
+    // Verificar permissões para cada cartão
     for (const { id, order, listId } of orders) {
+      // Verificar se o usuário pode mover este cartão
+      const existingCard = await prisma.card.findUnique({
+        where: { id },
+        select: { userId: true }
+      })
+
+      if (!existingCard) {
+        return NextResponse.json(
+          { error: `Cartão ${id} não encontrado` },
+          { status: 404 }
+        )
+      }
+
+      // Só permite mover se for o dono do cartão ou admin/moderator
+      if (existingCard.userId !== userId && userRole !== 'ADMIN' && userRole !== 'MODERATOR') {
+        return NextResponse.json(
+          { error: `Sem permissão para mover o cartão ${id}` },
+          { status: 403 }
+        )
+      }
+
       await prisma.card.update({ where: { id }, data: { order, listId } })
     }
     return NextResponse.json({ ok: true })

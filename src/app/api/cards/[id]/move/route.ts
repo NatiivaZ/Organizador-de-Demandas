@@ -7,7 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { listId } = await request.json()
+    const { listId, userId, userRole } = await request.json()
     const { id: paramId } = await params
     const cardId = parseInt(paramId)
 
@@ -15,6 +15,27 @@ export async function PATCH(
       return NextResponse.json(
         { error: 'ID da lista de destino é obrigatório' },
         { status: 400 }
+      )
+    }
+
+    // Verificar se o usuário pode mover este cartão
+    const existingCard = await prisma.card.findUnique({
+      where: { id: cardId },
+      select: { userId: true }
+    })
+
+    if (!existingCard) {
+      return NextResponse.json(
+        { error: 'Cartão não encontrado' },
+        { status: 404 }
+      )
+    }
+
+    // Só permite mover se for o dono do cartão ou admin/moderator
+    if (existingCard.userId !== userId && userRole !== 'ADMIN' && userRole !== 'MODERATOR') {
+      return NextResponse.json(
+        { error: 'Sem permissão para mover este cartão' },
+        { status: 403 }
       )
     }
 

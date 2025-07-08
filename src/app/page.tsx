@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useRef, useCallback } from "react"
 import { api } from "@/lib/api-utils"
+import { useUsers } from "@/lib/user-context"
 import { DragDropContext, Droppable, Draggable, DropResult, DraggableProvided, DraggableStateSnapshot, DroppableProvided, DroppableStateSnapshot } from '@hello-pangea/dnd'
 import dynamic from "next/dynamic"
 import ReactMarkdown from "react-markdown"
 import "react-markdown-editor-lite/lib/index.css"
 import { FiPlus, FiClock, FiCheckSquare, FiUsers, FiPaperclip, FiX, FiSearch, FiEdit2, FiTrash2, FiArchive, FiCopy, FiMove, FiBarChart2, FiSettings } from "react-icons/fi"
+import Header from "@/components/Header"
 import { BsThreeDots, BsThreeDotsVertical } from "react-icons/bs"
 import { FaPenToSquare } from "react-icons/fa6"
 import { FiChevronDown, FiChevronUp } from "react-icons/fi"
@@ -133,7 +135,6 @@ export default function KanbanPage() {
   const [editingListId, setEditingListId] = useState<number | null>(null)
   const [editingListName, setEditingListName] = useState<string>("")
   const listDropdown = useAdaptiveDropdown()
-  const cardDropdown = useDropdown()
   const [selectedCard, setSelectedCard] = useState<Card | null>(null)
   const [modalTags, setModalTags] = useState<number[]>([])
   const [showModal, setShowModal] = useState<string | false>(false)
@@ -145,16 +146,103 @@ export default function KanbanPage() {
   const [editingTag, setEditingTag] = useState<Tag | null>(null)
   const [confirmDeleteTag, setConfirmDeleteTag] = useState<Tag | null>(null)
   const [collapsedLists, setCollapsedLists] = useState<Set<number>>(new Set())
+  
+  // Usar o contexto de usuários - SEMPRE chamado
+  const { users, currentUser, setCurrentUser, loading: usersLoading, updateAuthCookie } = useUsers()
 
+  // Verificação adicional de cookie diretamente na página como backup
+  const [cookieUser, setCookieUser] = useState<any>(null)
+  const [shouldRedirect, setShouldRedirect] = useState(false)
+  
   useEffect(() => {
-    loadAll()
+    // Verificação direta do cookie como backup
+    if (typeof window !== 'undefined') {
+      const userCookie = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('user='))
+      
+      if (userCookie) {
+        try {
+          const user = JSON.parse(decodeURIComponent(userCookie.split('=')[1]))
+          console.log('🍪 Cookie encontrado diretamente na página:', user.username)
+          setCookieUser(user)
+        } catch (error) {
+          console.error('❌ Erro ao ler cookie na página:', error)
+        }
+      } else {
+        console.log('🚫 Nenhum cookie encontrado na página')
+        // Se não há cookie, marcar para redirecionamento após um tempo
+        setTimeout(() => {
+          setShouldRedirect(true)
+        }, 2000)
+      }
+    }
   }, [])
 
+  // Redirecionamento forçado
+  useEffect(() => {
+    if (shouldRedirect && !currentUser && !cookieUser) {
+      console.log('🔄 Redirecionamento forçado para login')
+      window.location.href = '/login'
+    }
+  }, [shouldRedirect, currentUser, cookieUser])
+
+  // useEffect - SEMPRE chamado
+  useEffect(() => {
+    console.log('🏠 KanbanPage useEffect - currentUser:', currentUser?.username || 'null', 'usersLoading:', usersLoading)
+    if (currentUser && !usersLoading) {
+      console.log('✅ Carregando dados da página inicial')
+      loadAll()
+    }
+  }, [currentUser, usersLoading])
+
+  // Verificações condicionais APÓS todos os hooks
+  const canEditLists = currentUser ? (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') : false
+  
+  const canEditCard = (card: Card) => {
+    if (!currentUser) return false
+    return canEditLists || card.user?.id === currentUser.id
+  }
+
+  console.log('🏠 KanbanPage render - currentUser:', currentUser?.username || 'null', 'usersLoading:', usersLoading, 'cookieUser:', cookieUser?.username || 'null')
+
+  // useEffect para atualizar currentUser quando há cookie mas não há currentUser
+  useEffect(() => {
+    if (!currentUser && cookieUser && !usersLoading) {
+      console.log('🔄 Usando cookie diretamente como currentUser')
+      setCurrentUser(cookieUser)
+    }
+  }, [currentUser, cookieUser, usersLoading, setCurrentUser])
+
+  // Return condicional APÓS todos os hooks - com loading otimizado
+  if (!currentUser && !cookieUser && usersLoading) {
+    console.log('🔄 Mostrando loading: sem currentUser, sem cookie e usersLoading=true')
+  return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+          <div className="text-white text-xl">Carregando...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Se não há usuário nem cookie e não está carregando, middleware vai redirecionar
+  if (!currentUser && !cookieUser && !usersLoading) {
+    console.log('🔄 Mostrando redirecionamento: sem currentUser, sem cookie e usersLoading=false')
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="text-white text-xl">Redirecionando...</div>
+      </div>
+    )
+  }
+
   async function loadAll() {
+    if (!currentUser) return
     setLoading(true)
     try {
       const [listsRes, tagsRes, catRes] = await Promise.all([
-        api.lists.getAll(),
+        api.lists.getAll(currentUser.id, currentUser.accessLevel),
         fetch('/api/tags').then(r => r.json()),
         fetch('/api/categories').then(r => r.json())
       ])
@@ -168,9 +256,10 @@ export default function KanbanPage() {
   }
 
   async function handleAddCard(listId: number) {
+    if (!currentUser) return
     const title = newCardTitle[listId]?.trim()
     if (!title) return
-    const card = await api.cards.create({ listId, title, userId: 1 }) as Card
+    const card = await api.cards.create({ listId, title, userId: currentUser.id }) as Card
     setLists(prev => prev.map(l => l.id === listId ? { ...l, cards: [...l.cards, card] } : l))
     setNewCardTitle((prev) => ({ ...prev, [listId]: "" }))
   }
@@ -209,7 +298,7 @@ export default function KanbanPage() {
         // Primeiro excluir todos os cartões da lista
         if (cardCount > 0) {
           for (const card of list.cards) {
-            await api.cards.delete(card.id)
+            await api.cards.delete(card.id, { userId: currentUser!.id, userRole: currentUser!.role })
           }
         }
         
@@ -281,7 +370,10 @@ export default function KanbanPage() {
           setLists(updatedLists)
 
           try {
-            await api.cards.updateOrder(newCards.map((c, idx) => ({ id: c.id, order: idx, listId: sourceListId })))
+            await api.cards.updateOrder(
+              newCards.map((c, idx) => ({ id: c.id, order: idx, listId: sourceListId })),
+              { userId: currentUser!.id, userRole: currentUser!.role }
+            )
           } catch (error) {
             console.error('Erro ao atualizar ordem dos cartões:', error)
             // Reverter mudança em caso de erro
@@ -317,7 +409,7 @@ export default function KanbanPage() {
             await api.cards.updateOrder([
               ...newSourceCards.map((c, idx) => ({ id: c.id, order: idx, listId: sourceListId })),
               ...newDestCards.map((c, idx) => ({ id: c.id, order: idx, listId: destListId })),
-            ])
+            ], { userId: currentUser!.id, userRole: currentUser!.role })
           } catch (error) {
             console.error('Erro ao mover cartão entre listas:', error)
             // Reverter mudança em caso de erro
@@ -418,7 +510,12 @@ export default function KanbanPage() {
     if (!selectedCard) return
     try {
       // Atualizar no backend
-      await api.cards.update(selectedCard.id, { description: descValue, title: selectedCard.title })
+      await api.cards.update(selectedCard.id, { 
+        description: descValue, 
+        title: selectedCard.title,
+        userId: currentUser!.id,
+        userRole: currentUser!.role
+      })
       
       // Atualizar na interface local
       setLists(prev => prev.map(l => l.id === selectedCard.listId ? {
@@ -520,8 +617,6 @@ export default function KanbanPage() {
     })
   }
 
-
-
   // Arquivar (excluir) lista e todos os cartões - OTIMIZADO
   async function handleArchiveList(listId: number) {
     const list = lists.find(l => l.id === listId)
@@ -554,13 +649,48 @@ export default function KanbanPage() {
     try {
       // Excluir todos os cartões no backend em background
       for (const card of list.cards) {
-        await api.cards.delete(card.id)
+        await api.cards.delete(card.id, { userId: currentUser!.id, userRole: currentUser!.role })
       }
       
     } catch (error) {
       console.error('Erro ao arquivar cartões:', error)
       // Em caso de erro, restaura os cartões na interface
       setLists(originalLists)
+    }
+  }
+
+  // Arquivar (excluir) cartão individual - OTIMIZADO
+  async function handleArchiveCard(cardId: number) {
+    // Encontrar o cartão e a lista
+    const card = lists.flatMap(l => l.cards).find(c => c.id === cardId)
+    if (!card) return
+
+    // Verificar se o usuário pode deletar este cartão
+    if (!canEditCard(card)) {
+      alert('Você não tem permissão para arquivar este cartão.')
+      return
+    }
+
+    // ATUALIZAÇÃO OTIMISTA: Remove cartão da interface imediatamente
+    const originalLists = lists
+    setLists(prev => prev.map(l => ({
+      ...l,
+      cards: l.cards.filter(c => c.id !== cardId)
+    })))
+
+    // Fechar o modal
+    setSelectedCard(null)
+    setShowModal(false)
+
+    try {
+      // Excluir no backend em background
+      await api.cards.delete(cardId, { userId: currentUser!.id, userRole: currentUser!.role })
+      
+    } catch (error) {
+      console.error('Erro ao arquivar cartão:', error)
+      // Em caso de erro, restaura o cartão na interface
+      setLists(originalLists)
+      alert('Erro ao arquivar o cartão. Tente novamente.')
     }
   }
 
@@ -585,16 +715,29 @@ export default function KanbanPage() {
         className="min-h-screen w-full bg-cover bg-center flex flex-col"
         style={{ backgroundImage: 'url("/circuit-board.jpg")' }}
       >
-        <header className="flex items-center justify-between px-8 py-4 bg-black/70 text-white">
-          <div className="font-bold text-lg">Suporte Técnico de TI</div>
-          <div className="flex items-center gap-2">
-            <span className="bg-neutral-800 px-3 py-1 rounded text-sm">0/0</span>
-            <button onClick={handleAddList} className="ml-4 bg-violet-700 px-4 py-2 rounded text-white font-semibold">+ Adicionar outra lista</button>
+        <Header title="SISTEMA DE DEMANDAS">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => {
+                loadAll()
+              }}
+              className="bg-green-600 hover:bg-green-700 px-3 py-2 rounded text-white text-sm font-medium transition-colors"
+              title="Atualizar dados"
+            >
+              🔄 Atualizar
+            </button>
+            {canEditLists && (
+              <button onClick={handleAddList} className="bg-violet-700 hover:bg-violet-800 px-4 py-2 rounded-lg text-white font-semibold transition-colors">
+                + Adicionar Lista
+              </button>
+            )}
           </div>
-        </header>
+        </Header>
         <main className="flex-1 overflow-x-auto px-6 py-6">
-          {loading ? (
-            <div className="text-white text-center">Carregando...</div>
+          {loading || usersLoading ? (
+            <div className="text-white text-center">
+              {usersLoading ? 'Carregando usuários...' : 'Carregando...'}
+            </div>
           ) : (
             <Droppable droppableId="board" direction="horizontal" type="LIST">
               {(provided) => (
@@ -604,17 +747,22 @@ export default function KanbanPage() {
                   {...provided.droppableProps}
                 >
                   {lists.map((list, listIdx) => (
-                    <Draggable draggableId={String(list.id)} index={listIdx} key={list.id}>
+                    <Draggable 
+                      draggableId={String(list.id)} 
+                      index={listIdx} 
+                      key={list.id}
+                      isDragDisabled={!canEditLists}
+                    >
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
-                          {...provided.dragHandleProps}
+                          {...(canEditLists ? provided.dragHandleProps : {})}
                           className={`rounded-xl p-3 flex flex-col shadow-lg ${collapsedLists.has(list.id)
                               ? 'border-2'
                               : 'bg-black/80 border max-h-[80vh]'
                             } ${snapshot.isDragging ? 'ring-2 ring-blue-500 shadow-2xl' : ''
-                            }`}
+                            } ${!canEditLists ? 'opacity-90' : ''}`}
                           style={{
                             width: collapsedLists.has(list.id)
                               ? '80px'
@@ -644,32 +792,36 @@ export default function KanbanPage() {
                               // Layout vertical para lista recolhida
                               <>
                                 {/* Botões no topo */}
-                                <div className="flex flex-col gap-2">
-                                  <button
-                                    className="flex items-center justify-center text-white/80 hover:text-white p-1.5 rounded-full bg-black/20 hover:bg-black/40 transition-all"
-                                    onClick={() => toggleListCollapse(list.id)}
-                                    title="Expandir lista"
-                                  >
-                                    <FiChevronDown className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    className="flex items-center justify-center text-white/80 hover:text-white p-1.5 rounded-full bg-black/20 hover:bg-black/40 transition-all"
-                                    onClick={(e) => {
-                                      const isOpen = listDropdown.openId === list.id
-                                      if (!isOpen) {
-                                        listDropdown.updatePosition(list.id, e.currentTarget)
-                                      }
-                                      listDropdown.setOpenId(isOpen ? null : list.id)
-                                    }}
-                                  >
-                                    <BsThreeDots className="w-4 h-4" />
-                                  </button>
-                                </div>
+                                {canEditLists && (
+                                  <div className="flex flex-col gap-2">
+                                    <button
+                                      className="flex items-center justify-center text-white/80 hover:text-white p-1.5 rounded-full bg-black/20 hover:bg-black/40 transition-all"
+                                      onClick={() => toggleListCollapse(list.id)}
+                                      title="Expandir lista"
+                                    >
+                                      <FiChevronDown className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      className="flex items-center justify-center text-white/80 hover:text-white p-1.5 rounded-full bg-black/20 hover:bg-black/40 transition-all"
+                                      onClick={(e) => {
+                                        const isOpen = listDropdown.openId === list.id
+                                        if (!isOpen) {
+                                          listDropdown.updatePosition(list.id, e.currentTarget)
+                                        }
+                                        listDropdown.setOpenId(isOpen ? null : list.id)
+                                      }}
+                                    >
+                                      <BsThreeDots className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
 
                                 {/* Nome da lista vertical - centro */}
                                 <div
-                                  className="font-bold text-white text-sm cursor-pointer hover:underline flex-1 flex items-center justify-center text-center px-2"
-                                  onClick={() => { setEditingListId(list.id); setEditingListName(list.name) }}
+                                  className={`font-bold text-white text-sm flex-1 flex items-center justify-center text-center px-2 ${
+                                    canEditLists ? 'cursor-pointer hover:underline' : ''
+                                  }`}
+                                  onClick={canEditLists ? () => { setEditingListId(list.id); setEditingListName(list.name) } : undefined}
                                   style={{
                                     writingMode: 'vertical-rl',
                                     textOrientation: 'mixed',
@@ -693,7 +845,7 @@ export default function KanbanPage() {
                             ) : (
                               // Layout horizontal para lista expandida
                               <>
-                                {editingListId === list.id ? (
+                                {editingListId === list.id && canEditLists ? (
                                   <input
                                     className="font-semibold text-white text-base truncate bg-transparent border-b border-violet-500 focus:outline-none w-40"
                                     value={editingListName}
@@ -708,37 +860,41 @@ export default function KanbanPage() {
                                 ) : (
                                   <>
                                     <div
-                                      className="font-semibold text-white text-base truncate cursor-pointer hover:underline flex-1 flex items-center gap-2"
-                                      onClick={() => { setEditingListId(list.id); setEditingListName(list.name) }}
+                                      className={`font-semibold text-white text-base truncate flex-1 flex items-center gap-2 ${
+                                        canEditLists ? 'cursor-pointer hover:underline' : ''
+                                      }`}
+                                      onClick={canEditLists ? () => { setEditingListId(list.id); setEditingListName(list.name) } : undefined}
                                     >
                                       <span>{list.name}</span>
                                     </div>
 
                                   </>
                                 )}
-                                <div className="flex items-center gap-1 relative">
-                                  {/* Botão para recolher lista */}
-                                  <button
-                                    className="flex items-center justify-center text-neutral-400 hover:text-white p-1 rounded transition-colors"
-                                    onClick={() => toggleListCollapse(list.id)}
-                                    title="Recolher lista"
-                                  >
-                                    <FiChevronUp className="w-4 h-4" />
-                                  </button>
-                                  {/* Botão de três pontos */}
-                                  <button
-                                    className="flex items-center justify-center text-neutral-400 hover:text-white p-1 rounded transition-colors"
-                                    onClick={(e) => {
-                                      const isOpen = listDropdown.openId === list.id
-                                      if (!isOpen) {
-                                        listDropdown.updatePosition(list.id, e.currentTarget)
-                                      }
-                                      listDropdown.setOpenId(isOpen ? null : list.id)
-                                    }}
-                                  >
-                                    <BsThreeDots className="w-4 h-4" />
-                                  </button>
-                                </div>
+                                {canEditLists && (
+                                  <div className="flex items-center gap-1 relative">
+                                    {/* Botão para recolher lista */}
+                                    <button
+                                      className="flex items-center justify-center text-neutral-400 hover:text-white p-1 rounded transition-colors"
+                                      onClick={() => toggleListCollapse(list.id)}
+                                      title="Recolher lista"
+                                    >
+                                      <FiChevronUp className="w-4 h-4" />
+                                    </button>
+                                    {/* Botão de três pontos */}
+                                    <button
+                                      className="flex items-center justify-center text-neutral-400 hover:text-white p-1 rounded transition-colors"
+                                      onClick={(e) => {
+                                        const isOpen = listDropdown.openId === list.id
+                                        if (!isOpen) {
+                                          listDropdown.updatePosition(list.id, e.currentTarget)
+                                        }
+                                        listDropdown.setOpenId(isOpen ? null : list.id)
+                                      }}
+                                    >
+                                      <BsThreeDots className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
                               </>
                             )}
                             {listDropdown.openId === list.id && (
@@ -852,7 +1008,7 @@ export default function KanbanPage() {
                                     >
                                       Remover cor
                                     </button>
-                                  </div>
+        </div>
                                 </div>
                                 
                                 {/* Separador */}
@@ -930,18 +1086,28 @@ export default function KanbanPage() {
                                   {...provided.droppableProps}
                                 >
                                   {(list.cards ?? []).map((card, cardIdx) => (
-                                    <Draggable draggableId={`card-${card.id}`} index={cardIdx} key={card.id}>
+                                    <Draggable 
+                                      draggableId={`card-${card.id}`} 
+                                      index={cardIdx} 
+                                      key={card.id}
+                                      isDragDisabled={!canEditCard(card)}
+                                    >
                                       {(provided: DraggableProvided, snapshot: DraggableStateSnapshot) => (
                                         <div
                                           ref={provided.innerRef}
                                           {...provided.draggableProps}
-                                          {...provided.dragHandleProps}
+                                          {...(canEditCard(card) ? provided.dragHandleProps : {})}
                                           className={`bg-neutral-900 rounded-lg p-3 mb-3 shadow border border-neutral-800 cursor-pointer hover:bg-neutral-800 transition-colors
-                                          ${snapshot.isDragging ? 'ring-2 ring-violet-500' : ''}`}
+                                          ${snapshot.isDragging ? 'ring-2 ring-violet-500' : ''} ${!canEditCard(card) ? 'opacity-75' : ''}`}
                                           style={{
                                             ...provided.draggableProps.style
                                           }}
-                                          onClick={e => { if (!(e.target as HTMLElement).closest('.dropdown-menu')) openCardModal(card) }}
+                                          onClick={e => { 
+                                            // Evitar abrir modal se clicar no botão de editar
+                                            if (!(e.target as HTMLElement).closest('button')) {
+                                              openCardModal(card)
+                                            }
+                                          }}
                                           tabIndex={0}
                                           role="button"
                                         >
@@ -974,25 +1140,16 @@ export default function KanbanPage() {
                                           )}
                                           {/* Rodapé do cartão */}
                                           <div className="flex items-center gap-2 mt-2 text-xs text-neutral-500">
-                                            <span className="material-icons text-base">notes</span>
-                                            {card.user && <span>{card.user.username}</span>}
-                                            <div className="relative ml-auto" ref={cardDropdown.ref}>
+                                            {canEditCard(card) && (
                                               <button
-                                                className="flex items-center justify-center text-neutral-400 hover:text-white p-0 m-0 h-6 w-6"
+                                                className="flex items-center justify-center text-neutral-400 hover:text-white p-0 m-0 h-6 w-6 ml-auto"
                                                 style={{ minWidth: 0, minHeight: 0 }}
-                                                onClick={() => cardDropdown.setOpenId(cardDropdown.openId === card.id ? null : card.id)}
+                                                onClick={() => openCardModal(card)}
+                                                title="Editar cartão"
                                               >
                                                 <span className="material-icons" style={{ fontSize: 20, lineHeight: 1 }}><FaPenToSquare /> </span>
                                               </button>
-                                              {cardDropdown.openId === card.id && (
-                                                <div className="absolute right-0 top-6 z-50 bg-neutral-900 border border-neutral-700 rounded shadow-lg min-w-[120px] py-1">
-                                                  <button
-                                                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-neutral-800"
-                                                    onClick={() => { /* handleEditCard(card.id) */ cardDropdown.setOpenId(null) }}
-                                                  >Editar cartão</button>
-                                                </div>
-                                              )}
-                                            </div>
+                                            )}
                                           </div>
                                         </div>
                                       )}
@@ -1026,7 +1183,7 @@ export default function KanbanPage() {
                     </Draggable>
                   ))}
                   {provided.placeholder}
-        </div>
+                </div>
               )}
             </Droppable>
           )}
@@ -1335,7 +1492,7 @@ export default function KanbanPage() {
                         savingTags={savingTags}
                       />
                     )}
-                  </div>
+    </div>
                   {tags.length === 0 && <span className="text-xs text-neutral-400 ml-2">Nenhuma etiqueta cadastrada</span>}
                 </div>
                 {/* Botões estilo Trello */}
@@ -1413,7 +1570,10 @@ export default function KanbanPage() {
                 <div className="font-semibold mb-4 text-white">Ações</div>
 
                 {/* Botão de arquivar */}
-                <button className="flex items-center gap-2 w-full bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded transition mb-3">
+                <button 
+                  className="flex items-center gap-2 w-full bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded transition mb-3"
+                  onClick={() => selectedCard && handleArchiveCard(selectedCard.id)}
+                >
                   <FiArchive className="text-lg" />
                   Arquivar
                 </button>

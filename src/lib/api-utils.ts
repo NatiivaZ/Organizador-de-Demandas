@@ -46,9 +46,18 @@ export class ApiClient {
     })
   }
 
+  async getCurrentUser(userId: number) {
+    return this.request(`/auth/me?userId=${userId}`)
+  }
+
   // Listas
-  async getLists() {
-    return this.request('/lists')
+  async getLists(userId?: number, userAccessLevel?: number) {
+    const params = new URLSearchParams()
+    if (userId) params.append('userId', userId.toString())
+    if (userAccessLevel) params.append('userAccessLevel', userAccessLevel.toString())
+    
+    const endpoint = params.toString() ? `/lists?${params}` : '/lists'
+    return this.request(endpoint)
   }
 
   async createList(name: string) {
@@ -108,6 +117,8 @@ export class ApiClient {
     categoryId?: number
     topics?: string[]
     tagIds?: number[]
+    userId?: number
+    userRole?: string
   }) {
     return this.request(`/cards/${id}`, {
       method: 'PUT',
@@ -115,23 +126,24 @@ export class ApiClient {
     })
   }
 
-  async deleteCard(id: number) {
+  async deleteCard(id: number, userData?: { userId: number; userRole: string }) {
     return this.request(`/cards/${id}`, {
       method: 'DELETE',
+      body: userData ? JSON.stringify(userData) : undefined,
     })
   }
 
-  async moveCard(id: number, listId: number) {
+  async moveCard(id: number, listId: number, userData?: { userId: number; userRole: string }) {
     return this.request(`/cards/${id}/move`, {
       method: 'PATCH',
-      body: JSON.stringify({ listId }),
+      body: JSON.stringify({ listId, ...userData }),
     })
   }
 
-  async updateCardsOrder(orders: {id: number, order: number, listId: number}[]) {
+  async updateCardsOrder(orders: {id: number, order: number, listId: number}[], userData?: { userId: number; userRole: string }) {
     return this.request('/cards', {
       method: 'PATCH',
-      body: JSON.stringify({ orders }),
+      body: JSON.stringify({ orders, ...userData }),
     })
   }
 
@@ -151,9 +163,10 @@ export const api = {
   auth: {
     login: (username: string, password: string) => apiClient.login(username, password),
     register: (username: string, password: string) => apiClient.register(username, password),
+    getCurrentUser: (userId: number) => apiClient.getCurrentUser(userId),
   },
   lists: {
-    getAll: () => apiClient.getLists(),
+    getAll: (userId?: number, userAccessLevel?: number) => apiClient.getLists(userId, userAccessLevel),
     create: (name: string) => apiClient.createList(name),
     update: (id: number, name: string) => apiClient.updateList(id, name),
     delete: (id: number) => apiClient.deleteList(id),
@@ -163,9 +176,9 @@ export const api = {
     getAll: () => apiClient.getCards(),
     create: (data: any) => apiClient.createCard(data),
     update: (id: number, data: any) => apiClient.updateCard(id, data),
-    delete: (id: number) => apiClient.deleteCard(id),
-    move: (id: number, listId: number) => apiClient.moveCard(id, listId),
-    updateOrder: (orders: {id: number, order: number, listId: number}[]) => apiClient.updateCardsOrder(orders),
+    delete: (id: number, userData?: { userId: number; userRole: string }) => apiClient.deleteCard(id, userData),
+    move: (id: number, listId: number, userData?: { userId: number; userRole: string }) => apiClient.moveCard(id, listId, userData),
+    updateOrder: (orders: {id: number, order: number, listId: number}[], userData?: { userId: number; userRole: string }) => apiClient.updateCardsOrder(orders, userData),
     updateTags: (id: number, tagIds: number[]) => apiClient.updateCardTags(id, tagIds),
   },
 } 

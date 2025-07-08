@@ -9,12 +9,33 @@ export async function PUT(
   try {
     const { id: paramId } = await params
     const id = parseInt(paramId)
-    const { listId, title, description, date, categoryId, topics, tagIds } = await request.json()
+    const { listId, title, description, date, categoryId, topics, tagIds, userId, userRole } = await request.json()
 
     if (!title) {
       return NextResponse.json(
         { error: 'Título é obrigatório' },
         { status: 400 }
+      )
+    }
+
+    // Verificar se o usuário pode editar este cartão
+    const existingCard = await prisma.card.findUnique({
+      where: { id },
+      select: { userId: true }
+    })
+
+    if (!existingCard) {
+      return NextResponse.json(
+        { error: 'Cartão não encontrado' },
+        { status: 404 }
+      )
+    }
+
+    // Só permite edição se for o dono do cartão ou admin/moderator
+    if (existingCard.userId !== userId && userRole !== 'ADMIN' && userRole !== 'MODERATOR') {
+      return NextResponse.json(
+        { error: 'Sem permissão para editar este cartão' },
+        { status: 403 }
       )
     }
 
@@ -84,6 +105,30 @@ export async function DELETE(
   try {
     const { id: paramId } = await params
     const id = parseInt(paramId)
+    
+    // Obter dados do usuário do body da requisição
+    const { userId, userRole } = await request.json()
+
+    // Verificar se o usuário pode deletar este cartão
+    const existingCard = await prisma.card.findUnique({
+      where: { id },
+      select: { userId: true }
+    })
+
+    if (!existingCard) {
+      return NextResponse.json(
+        { error: 'Cartão não encontrado' },
+        { status: 404 }
+      )
+    }
+
+    // Só permite deleção se for o dono do cartão ou admin/moderator
+    if (existingCard.userId !== userId && userRole !== 'ADMIN' && userRole !== 'MODERATOR') {
+      return NextResponse.json(
+        { error: 'Sem permissão para deletar este cartão' },
+        { status: 403 }
+      )
+    }
 
     await prisma.card.delete({
       where: { id }

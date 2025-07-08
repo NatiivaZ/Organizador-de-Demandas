@@ -1,10 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// GET - Buscar todas as listas com seus cartões
-export async function GET() {
+// GET - Buscar todas as listas com seus cartões (com filtro de acesso)
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get('userId')
+    const userAccessLevel = searchParams.get('userAccessLevel')
+    
+    // Se não tiver parâmetros de usuário, retorna todas as listas (para compatibilidade)
+    if (!userId || !userAccessLevel) {
+      const lists = await prisma.list.findMany({
+        include: {
+          cards: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  username: true
+                }
+              },
+              category: true,
+              topics: true,
+              tags: {
+                include: {
+                  tag: true
+                }
+              }
+            },
+            orderBy: {
+              createdAt: 'desc'
+            }
+          }
+        },
+        orderBy: {
+          id: 'asc'
+        }
+      })
+      return NextResponse.json(lists)
+    }
+
+    // Buscar listas que o usuário pode ver
     const lists = await prisma.list.findMany({
+      where: {
+        OR: [
+          // Listas públicas com nível de acesso suficiente
+          {
+            isPublic: true,
+            requiredAccessLevel: { lte: parseInt(userAccessLevel) }
+          },
+          // Listas com permissão específica
+          {
+            permissions: {
+              some: {
+                userId: parseInt(userId),
+                canView: true
+              }
+            }
+          }
+        ]
+      },
       include: {
         cards: {
           include: {
@@ -31,7 +86,6 @@ export async function GET() {
         id: 'asc'
       }
     })
-
     return NextResponse.json(lists)
   } catch (error) {
     console.error('Erro ao buscar listas:', error)

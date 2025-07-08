@@ -1,48 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 
 export async function POST(request: NextRequest) {
-  try {
-    const { username, password } = await request.json()
+  // Registro público foi desabilitado por questões de segurança
+  // Novos usuários devem ser criados através do painel administrativo
+  return NextResponse.json(
+    { 
+      error: 'Registro público desabilitado. Entre em contato com o administrador do sistema para criar uma nova conta.' 
+    },
+    { status: 403 }
+  )
+}
 
-    if (!username || !password) {
-      return NextResponse.json(
-        { error: 'Usuário e senha são obrigatórios' },
-        { status: 400 }
-      )
-    }
-
-    // Verificar se o usuário já existe
-    const existingUser = await prisma.user.findUnique({
-      where: { username }
-    })
-
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'Usuário já existe' },
-        { status: 409 }
-      )
-    }
-
-    // Criar novo usuário
-    const user = await prisma.user.create({
-      data: {
-        username,
-        password // Em produção, deve-se usar hash da senha
-      }
-    })
-
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        username: user.username
-      }
-    }, { status: 201 })
-  } catch (error) {
-    console.error('Erro no registro:', error)
-    return NextResponse.json(
-      { error: 'Erro interno do servidor' },
-      { status: 500 }
-    )
-  }
+export async function GET() {
+  return NextResponse.json(
+    { 
+      message: 'Registro público desabilitado. Usuários devem ser criados pelo administrador.' 
+    },
+    { status: 403 }
+  )
 } 

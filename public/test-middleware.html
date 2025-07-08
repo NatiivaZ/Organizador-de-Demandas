@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teste Middleware</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .test { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; }
+        .error { background-color: #f8d7da; }
+        button { padding: 10px 20px; margin: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Teste de Middleware</h1>
+    
+    <div class="test">
+        <h3>1. Limpar Cookies</h3>
+        <button onclick="clearCookies()">Limpar Todos os Cookies</button>
+        <p>Clique aqui para limpar todos os cookies e simular um usuário não logado.</p>
+    </div>
+    
+    <div class="test">
+        <h3>2. Testar Redirecionamento</h3>
+        <button onclick="testRedirect()">Ir para Página Principal</button>
+        <p>Após limpar os cookies, clique aqui. Deve redirecionar para /login</p>
+    </div>
+    
+    <div class="test">
+        <h3>3. Ver Cookies Atuais</h3>
+        <button onclick="showCookies()">Mostrar Cookies</button>
+        <div id="cookies"></div>
+    </div>
+    
+    <script>
+        function clearCookies() {
+            document.cookie.split(";").forEach(function(c) { 
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+            });
+            alert('Cookies limpos! Agora teste o redirecionamento.');
+        }
+        
+        function testRedirect() {
+            window.location.href = '/';
+        }
+        
+        function showCookies() {
+            const cookies = document.cookie || 'Nenhum cookie encontrado';
+            document.getElementById('cookies').innerHTML = '<pre>' + cookies + '</pre>';
+        }
+    </script>
+</body>
+</html> 
